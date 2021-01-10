@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
         let mid = (freqs[MID_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / MID_RANGE.len() as f64 * MID_EQ).min(255.0) as usize;
         let treb = (freqs[TREB_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / TREB_RANGE.len() as f64 * TREB_EQ).min(255.0) as usize;
         
-        println!("({},{},{})", bass, mid, treb);
+        println!("{};{};{};", bass, mid, treb);
 
         // freqs.sort_by(|(_,x), (_,y)| x.partial_cmp(y).unwrap().reverse());
 
