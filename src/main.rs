@@ -5,13 +5,15 @@ use num_traits::Zero;
 use rustfft::FFTplanner;
 // use simple_logger::SimpleLogger;
 use std::{f64::consts::PI, ops::Range};
-// use tokio::fs::File;
+// use tokio::fs::{File, OpenOptions};
 // use tokio::io::{AsyncWriteExt, BufWriter};
 
 mod client;
 mod protocol;
 
 use client::SnapClient;
+
+const FIFO_PATH: &'static str = "/tmp/cava";
 
 /// The number of samples per second (aka Hz)
 const SAMPLE_RATE: usize = 44100; // TODO get this from the server
@@ -24,8 +26,6 @@ const NUM_BARS: usize = 10;
 const BASS_BUFFER_SIZE: usize = 8192; // Might be pretty extra...
 const MID_BUFFER_SIZE: usize = 4096;
 const TREB_BUFFER_SIZE: usize = 2048;
-
-const BASS_BAR_WIDTH: usize = BASS_BUFFER_SIZE / NUM_BARS;
 
 /// Each FFT bin should be this big (in hertz)
 const BASS_BIN_SIZE: f64 = SAMPLE_RATE as f64 / BASS_BUFFER_SIZE as f64;
@@ -41,11 +41,16 @@ async fn main() -> Result<()> {
     // let BASS_BAR_CUTOFF = 4;
     // let MID_BAR_CUTOFF = 6;
 
-    let bars: [Range<usize>; 3] = [
-        ((20.0 / BASS_BIN_SIZE).round() as usize..(250.0 / BASS_BIN_SIZE).round() as usize),
-        ((250.0 / BASS_BIN_SIZE).round() as usize..(4_000.0 / BASS_BIN_SIZE).round() as usize),
-        ((4_000.0 / BASS_BIN_SIZE).round() as usize..(20_000.0 / BASS_BIN_SIZE).round() as usize),
-    ];
+    // SimpleLogger::new().init().unwrap();
+
+
+    let BASS_RANGE = ((20.0 / BASS_BIN_SIZE).round() as usize..(250.0 / BASS_BIN_SIZE).round() as usize);
+    let MID_RANGE = ((250.0 / BASS_BIN_SIZE).round() as usize..(4_000.0 / BASS_BIN_SIZE).round() as usize);
+    let TREB_RANGE = ((4_000.0 / BASS_BIN_SIZE).round() as usize..(20_000.0 / BASS_BIN_SIZE).round() as usize);
+
+    let BASS_EQ = 80.0 / 1_000_000.0;
+    let MID_EQ = 80.0 / 100_000.0;
+    let TREB_EQ = 80.0 / 100_000.0;
 
     // Hann Windows
     let bass_window: Vec<f64> = (0..BASS_BUFFER_SIZE)
@@ -58,11 +63,19 @@ async fn main() -> Result<()> {
         .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (TREB_BUFFER_SIZE - 1) as f64).cos()))
         .collect();
 
+    // if let Err(_) = nix::unistd::access(FIFO_PATH, nix::unistd::AccessFlags::F_OK) {
+    //     nix::unistd::mkfifo(FIFO_PATH, nix::sys::stat::Mode::from_bits(0o664).unwrap())?;
+    // }
+
+    // info!("Here");
+
+    // let mut fifo = BufWriter::new(OpenOptions::new().write(true).create(true).mode(0o644).open(FIFO_PATH).await?);
+
+    // info!("Here");
+
     // let mut samples = BufWriter::new(File::create("samples.txt").await?);
     // let mut bass_file = BufWriter::new(File::create("bass_freqs.txt").await?);
     // let mut treb_file = BufWriter::new(File::create("treb_freqs.txt").await?);
-
-    // SimpleLogger::new().init().unwrap();
 
     // Sample buffer of BASS buffer size since it's the biggest
     let mut buf = [Complex::zero(); BASS_BUFFER_SIZE];
@@ -158,12 +171,11 @@ async fn main() -> Result<()> {
         //     treb_file.write(b"-----\n").await?;
         // }
 
-        let max = 100_000.0;
-        for range in bars.iter() {
-            let avg = freqs[range.clone()].iter().map(|(_, s)| s).sum::<f64>() / BASS_BAR_WIDTH as f64;
-
-            println!("{}", "X".repeat((80.0 * (avg / max)) as usize))
-        }
+        let bass = (freqs[BASS_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / BASS_RANGE.len() as f64 * BASS_EQ).min(255.0) as usize;
+        let mid = (freqs[MID_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / MID_RANGE.len() as f64 * MID_EQ).min(255.0) as usize;
+        let treb = (freqs[TREB_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / TREB_RANGE.len() as f64 * TREB_EQ).min(255.0) as usize;
+        
+        println!("({},{},{})", bass, mid, treb);
 
         // freqs.sort_by(|(_,x), (_,y)| x.partial_cmp(y).unwrap().reverse());
 
@@ -213,7 +225,7 @@ async fn main() -> Result<()> {
         //     println!("{}", std::iter::repeat("X").take(height).collect::<String>());
         // }
 
-        println!("")
+        // println!("")
     }
 
     info!("Stream closed");
