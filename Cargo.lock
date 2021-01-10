@@ -737,6 +737,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite",
+ "slab",
  "tokio",
  "tokio-stream",
 ]

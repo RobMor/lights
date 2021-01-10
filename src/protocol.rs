@@ -1,21 +1,78 @@
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Context, Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chrono::{DateTime, Local, TimeZone};
-use mac_address::get_mac_address;
-use serde::{Deserialize, Serialize};
+use futures::{sink::SinkExt, stream::StreamExt};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::Cursor;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::net::TcpStream;
+use tokio::net::ToSocketAddrs;
+use tokio_util::codec::Framed;
 use tokio_util::codec::{Decoder, Encoder};
 
 const BASE_MESSAGE_SIZE: usize = 26;
+
+pub struct SnapStream {
+    stream: Framed<TcpStream, SnapCodec>,
+    instant: Instant,
+    current_id: u16,
+}
+
+impl SnapStream {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<SnapStream> {
+        let stream = TcpStream::connect(addr).await?;
+        let instant = Instant::now();
+
+        Ok(SnapStream {
+            stream: Framed::new(stream, SnapCodec::new(instant)),
+            instant: instant,
+            current_id: 0,
+        })
+    }
+
+    pub async fn send(&mut self, msg: SnapKind) -> Result<()> {
+        let msg = SnapMessage {
+            base: SnapBase {
+                id: self.current_id,
+                refers_to: 0,
+                received: Duration::new(0, 0),
+                sent: self.instant.elapsed(),
+            },
+            kind: msg,
+        };
+
+        self.current_id += 1;
+
+        self.stream.send(msg).await
+    }
+
+    // pub async fn respond(&mut self, id: u16, response: SnapKind) -> Result<()> {
+    //     self.current_id
+    //     let msg = SnapMessage {
+    //         base: SnapBase {
+    //             id: self.current_id,
+    //             refers_to: id,
+    //             received: Duration::new(0, 0),
+    //             sent: self.instant.elapsed(),
+    //         },
+    //         kind: response
+    //     };
+
+    //     self.stream.send(msg).await
+    // }
+
+    pub async fn next(&mut self) -> Option<Result<SnapMessage>> {
+        self.stream.next().await
+    }
+}
 
 #[derive(Debug)]
 pub struct SnapBase {
     pub id: u16,
     pub refers_to: u16,
-    pub received: Option<Duration>,
+    pub received: Duration,
     pub sent: Duration,
 }
 
@@ -28,32 +85,6 @@ pub struct SnapMessage {
 impl SnapMessage {
     fn size(&self) -> usize {
         BASE_MESSAGE_SIZE + self.kind.size() as usize
-    }
-
-    pub fn hello() -> SnapMessage {
-        let kind = SnapKind::Hello {
-            payload: SnapHello {
-                arch: "x86_64".to_string(),
-                client_name: "Snapclient".to_string(),
-                host_name: "hostname".to_string(),
-                id: get_mac_address().unwrap().unwrap().to_string(),
-                instance: 1,
-                mac: get_mac_address().unwrap().unwrap().to_string(),
-                os: "Ubuntu".to_string(),
-                protocol_version: 2,
-                version: "0.17.1".to_string(),
-            },
-        };
-
-        SnapMessage {
-            base: SnapBase {
-                id: kind.id(),
-                refers_to: 0,
-                received: None,
-                sent: Duration::new(0, 0),
-            },
-            kind,
-        }
     }
 }
 
@@ -113,34 +144,45 @@ impl SnapKind {
 #[serde(rename_all = "camelCase")]
 pub struct SnapServerSettings {
     pub buffer_ms: usize,
-    pub latency: usize,
+    #[serde(deserialize_with = "deserialize_duration", serialize_with = "serialize_duration")]
+    pub latency: Duration,
     pub muted: bool,
     pub volume: usize,
+}
+
+fn deserialize_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+    Ok(Duration::from_millis(Deserialize::deserialize(d)?))
+}
+
+fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_u128(d.as_millis())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SnapHello {
-    arch: String,
-    client_name: String,
-    host_name: String,
+    pub arch: String,
+    pub client_name: String,
+    pub host_name: String,
     #[serde(rename = "ID")]
-    id: String,
-    instance: usize,
+    pub id: String,
+    pub instance: usize,
     #[serde(rename = "MAC")]
-    mac: String,
+    pub mac: String,
     #[serde(rename = "OS")]
-    os: String,
+    pub os: String,
     #[serde(rename = "SnapStreamProtocolVersion")]
-    protocol_version: usize,
-    version: String,
+    pub protocol_version: usize,
+    pub version: String,
 }
 
-pub struct SnapCodec;
+pub struct SnapCodec {
+    instant: Instant,
+}
 
 impl SnapCodec {
-    pub fn new() -> SnapCodec {
-        SnapCodec
+    pub fn new(instant: Instant) -> SnapCodec {
+        SnapCodec { instant }
     }
 }
 
@@ -177,7 +219,7 @@ impl Decoder for SnapCodec {
         let base = SnapBase {
             id,
             refers_to,
-            received: Some(Duration::new(0, 0)),
+            received: self.instant.elapsed(),
             sent: Duration::from_secs(sent_sec as u64)
                 + Duration::from_millis(sent_usec as u64 / 1000),
         };
@@ -276,13 +318,8 @@ impl Encoder<SnapMessage> for SnapCodec {
         dst.put_u16_le(item.kind.id());
         dst.put_u16_le(item.base.id);
         dst.put_u16_le(item.base.refers_to);
-        dst.put_i32_le(item.base.received.map_or(0, |t| t.as_secs()).try_into()?);
-        dst.put_i32_le(
-            item.base
-                .received
-                .map_or(0, |t| t.subsec_micros())
-                .try_into()?,
-        );
+        dst.put_i32_le(item.base.received.as_secs().try_into()?);
+        dst.put_i32_le(item.base.received.subsec_micros().try_into()?);
         dst.put_i32_le(item.base.sent.as_secs().try_into()?);
         dst.put_i32_le(item.base.sent.subsec_micros().try_into()?);
         dst.put_u32_le(item.kind.size());
