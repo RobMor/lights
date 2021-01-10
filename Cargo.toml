@@ -1,0 +1,23 @@
+[package]
+name = "lights"
+version = "0.1.0"
+authors = ["rob"]
+edition = "2018"
+
+[dependencies]
+log = "0.4.11"
+simple_logger = "1.11.0"
+tokio = { version = "1.0.1", features = ["full"] }
+tokio-util = { version = "0.6.0", features = ["codec"] }
+mdns = { path = "../mdns" } # Pull request for tokio-1.0
+futures = "0.3.8"
+anyhow = "1.0.36"
+serde_json = "1.0.59"
+serde = { version = "1.0.118", features = ["derive"] }
+mac_address = "1.1.1"
+bytes = "1.0"
+chrono = "0.4.19"
+claxon = { path = "../claxon" } # Hacked together streaming api
+rustfft = "4.1.0"
+num-complex = "0.3"
+num-traits = "0.2"
