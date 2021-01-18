@@ -135,10 +135,12 @@ pub struct SnapServerSettings {
     pub volume: usize,
 }
 
+/// The durations are encoded as numbers of milliseconds.
 fn deserialize_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
     Ok(Duration::milliseconds(Deserialize::deserialize(d)?))
 }
 
+/// The durations are encoded as numbers of milliseconds.
 fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_i128(d.whole_milliseconds())
 }
@@ -200,8 +202,6 @@ impl Decoder for SnapCodec {
             src.reserve(BASE_MESSAGE_SIZE + size as usize);
             return Ok(None);
         }
-
-        let received = self.instant.elapsed();
 
         let base = SnapBase {
             id,

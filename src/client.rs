@@ -13,25 +13,20 @@ use tokio_util::time::DelayQueue;
 
 use crate::protocol::{SnapHello, SnapKind, SnapMessage, SnapStream};
 
-/// The hostname of the devices we are searching for.
+/// The MDNS service name that the snapserver uses
 const SERVICE_NAME: &'static str = "_snapcast._tcp.local";
 
 pub struct SnapClient {
+    /// The actual stream of messages coming in
     stream: SnapStream,
+    /// Queue for raw audio frames
     queue: DelayQueue<Vec<i32>>,
-
     /// Base timestamp from which all other timestamps are derived
     instant: Instant,
-
     /// Difference in time between the client and server
     time_diff: Duration,
-
-    /// Not really sure but the server sends this as part of the settings...
-    latency: Duration,
-
     /// The amount of time to wait after the timestamp before playing a frame
     delay: Duration,
-
     /// The codec header
     header: Option<FlacHeader>,
 }
@@ -73,7 +68,7 @@ impl SnapClient {
         let instant = Instant::now();
         let mut stream = SnapStream::connect(addr, instant).await?;
 
-        // TODO
+        // TODO fill this out with the correct information
         let hello = SnapKind::Hello {
             payload: SnapHello {
                 arch: "x86_64".to_string(),
@@ -101,10 +96,9 @@ impl SnapClient {
             queue: DelayQueue::new(),
             instant: instant,
 
+            // TODO maybe just wait for the necessary information here rather than initializing with fake data
             delay: Duration::new(0, 0),
-            latency: Duration::new(0, 0),
             time_diff: Duration::new(0, 0),
-
             header: None,
         });
     }
@@ -123,14 +117,14 @@ impl SnapClient {
                     let frame = frame.context("Error while retrieving frame from queue")?;
 
                     let time_over = frame.deadline().elapsed();
+
                     let frame = frame.into_inner();
 
                     // Make sure this frame isn't too old...
-                    let length = if let Some(header) = &self.header {
-                        (frame.len() as f64 / header.streaminfo().sample_rate as f64).seconds()
-                    } else {
-                        500.milliseconds()
-                    };
+                    let length = self.header.as_ref().map_or(
+                        500.milliseconds(),
+                        |header| (frame.len() as f64 / header.streaminfo().sample_rate as f64).seconds()
+                    );
 
                     if time_over < length {
                         return Ok(Some(frame))
@@ -144,9 +138,8 @@ impl SnapClient {
     async fn process_message(&mut self, msg: SnapMessage) -> Result<()> {
         match msg.kind {
             SnapKind::ServerSettings { settings } => {
-                // TODO what are the other fields here?
+                // TODO are the other fields of any use here?
                 self.delay = settings.buffer_ms;
-                self.latency = settings.latency; // TODO is this field even useful?
 
                 Ok(())
             }
@@ -176,7 +169,6 @@ impl SnapClient {
 
                 assert!(payload.remaining() == 0);
 
-                // TODO maybe move this out?
                 let data = if block.channels() != 1 {
                     let num_channels = block.channels() as usize;
                     let block_size = block.len() as usize / num_channels;
@@ -184,15 +176,26 @@ impl SnapClient {
                     let buffer = block.into_buffer();
 
                     // Channels are stored sequentially, meaning the entire first channel is stored,
-                    // then the entire second channel, then ...
+                    // then the entire second channel, and so on.
+                    //
+                    // 0 1 2 3 4 5 6 7 8 0 1 2 3 4 5 6 7 8 ...
+                    // [   channel 1   ] [   channel 2   ] ...
+                    //
+                    // Here we are just taking the average of all the channels to produce one channel.
 
                     (0..block_size)
-                        // I think it's reasonable to assume that the number of channels will always fit in a 32 bit integer
-                        .map(|i| (0..num_channels).map(|_| buffer[i]).sum::<i32>() as i32 / num_channels as i32)
+                        .map(|i| (0..num_channels).map(|j| buffer[i + block_size * j]).sum::<i32>() as i32 / num_channels as i32)
                         .collect()
                 } else {
+                    // Small optimization, just return the block of data if it only has one channel.
+                    // TODO the frame might be guaranteed to have more than 1 channel...
                     block.into_buffer()
                 };
+
+                // Compute the delay before the frame should be 'played'. This is based on the server
+                // provided value of the amount of buffer time and the timestamp of the frame.
+                //
+                // We want the frame to play when the server time hits timestamp + delay.
 
                 let server_now = self.instant.elapsed() + self.time_diff;
                 let delay = (timestamp - server_now) + self.delay;
