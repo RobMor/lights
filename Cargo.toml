@@ -16,8 +16,9 @@ serde_json = "1.0.59"
 serde = { version = "1.0.118", features = ["derive"] }
 mac_address = "1.1.1"
 bytes = "1.0"
-chrono = "0.4.19"
 claxon = { path = "../claxon" } # Hacked together streaming api
 rustfft = "4.1.0"
 num-complex = "0.3"
 num-traits = "0.2"
+# Negative durations
+time = "0.2.24"

@@ -5,7 +5,9 @@ use futures::{pin_mut, sink::SinkExt, stream::StreamExt};
 use log::{debug, info};
 use mac_address::get_mac_address;
 use mdns::RecordKind;
-use std::{net::IpAddr, time::Duration};
+use std::convert::TryInto;
+use std::net::IpAddr;
+use time::{Duration, Instant, NumericalDuration};
 use tokio::net::ToSocketAddrs;
 use tokio_util::time::DelayQueue;
 
@@ -17,16 +19,27 @@ const SERVICE_NAME: &'static str = "_snapcast._tcp.local";
 pub struct SnapClient {
     stream: SnapStream,
     queue: DelayQueue<Vec<i32>>,
-    time_delay: Duration,
+
+    /// Base timestamp from which all other timestamps are derived
+    instant: Instant,
+
+    /// Difference in time between the client and server
+    time_diff: Duration,
+
+    /// Not really sure but the server sends this as part of the settings...
     latency: Duration,
+
+    /// The amount of time to wait after the timestamp before playing a frame
+    delay: Duration,
+
+    /// The codec header
     header: Option<FlacHeader>,
-    // TODO settings
 }
 
 impl SnapClient {
     pub async fn discover() -> Result<SnapClient> {
         // Iterate through responses from each Cast device, asking for new devices every 15s
-        let stream = mdns::discover::all(SERVICE_NAME, Duration::from_secs(15))?.listen();
+        let stream = mdns::discover::all(SERVICE_NAME, Duration::seconds(15).try_into()?)?.listen();
         pin_mut!(stream);
 
         while let Some(Ok(response)) = stream.next().await {
@@ -53,16 +66,15 @@ impl SnapClient {
             }
         }
 
-        Err(anyhow!(
-            "Discovery stopped before we found a suitable server"
-        ))
+        Err(anyhow!("Discovery stopped before we found a suitable server"))
     }
 
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<SnapClient> {
-        let mut stream = SnapStream::connect(addr).await?;
+        let instant = Instant::now();
+        let mut stream = SnapStream::connect(addr, instant).await?;
 
         // TODO
-        let kind = SnapKind::Hello {
+        let hello = SnapKind::Hello {
             payload: SnapHello {
                 arch: "x86_64".to_string(),
                 client_name: "Snapclient".to_string(),
@@ -76,13 +88,23 @@ impl SnapClient {
             },
         };
 
-        stream.send(kind).await?;
+        stream.send(hello).await?;
+
+        let time = SnapKind::Time {
+            delta: Duration::new(0, 0),
+        };
+
+        stream.send(time).await?;
 
         return Ok(SnapClient {
             stream: stream,
             queue: DelayQueue::new(),
-            time_delay: Duration::new(0, 0),
+            instant: instant,
+
+            delay: Duration::new(0, 0),
             latency: Duration::new(0, 0),
+            time_diff: Duration::new(0, 0),
+
             header: None,
         });
     }
@@ -100,9 +122,18 @@ impl SnapClient {
                 Some(frame) = self.queue.next() => {
                     let frame = frame.context("Error while retrieving frame from queue")?;
 
+                    let time_over = frame.deadline().elapsed();
+                    let frame = frame.into_inner();
+
                     // Make sure this frame isn't too old...
-                    if frame.deadline().elapsed() < Duration::from_millis(500) {
-                        return Ok(Some(frame.into_inner()))
+                    let length = if let Some(header) = &self.header {
+                        (frame.len() as f64 / header.streaminfo().sample_rate as f64).seconds()
+                    } else {
+                        500.milliseconds()
+                    };
+
+                    if time_over < length {
+                        return Ok(Some(frame))
                     }
                 },
                 else => return Ok(None),
@@ -113,17 +144,18 @@ impl SnapClient {
     async fn process_message(&mut self, msg: SnapMessage) -> Result<()> {
         match msg.kind {
             SnapKind::ServerSettings { settings } => {
-                self.time_delay = settings.latency;
+                // TODO what are the other fields here?
+                self.delay = settings.buffer_ms;
+                self.latency = settings.latency; // TODO is this field even useful?
 
                 Ok(())
-            },
-            SnapKind::Time { latency } => {
-                let received = msg.base.received;
-                let sent = msg.base.sent;
-
-                let delta = received - sent;
-
-                self.latency = (latency - delta) / 2; // ???
+            }
+            SnapKind::Time {
+                delta: client_to_server,
+            } => {
+                // This is like NTP
+                let server_to_client = msg.base.sent - msg.base.received;
+                self.time_diff = (client_to_server + server_to_client) / 2;
 
                 Ok(())
             }
@@ -131,23 +163,14 @@ impl SnapClient {
                 match codec.as_str() {
                     "flac" => (),
                     // TODO support the other codecs...
-                    s => {
-                        return Err(anyhow!(
-                            "The SnapServer is using an unsupported codec: {}",
-                            s
-                        ))
-                    }
+                    s => return Err(anyhow!("The SnapServer is using an unsupported codec: {}", s)),
                 }
 
-                self.header =
-                    Some(FlacHeader::from_header(payload).context("Error reading FLAC header")?);
+                self.header = Some(FlacHeader::from_header(payload).context("Error reading FLAC header")?);
 
                 Ok(())
             }
-            SnapKind::WireChunk {
-                timestamp: _,
-                mut payload,
-            } if self.header.is_some() => {
+            SnapKind::WireChunk { timestamp, mut payload } if self.header.is_some() => {
                 // TODO block makes an allocation
                 let block = Block::from_frame(&mut payload).context("Error reading FLAC block")?;
 
@@ -165,17 +188,18 @@ impl SnapClient {
 
                     (0..block_size)
                         // I think it's reasonable to assume that the number of channels will always fit in a 32 bit integer
-                        .map(|i| {
-                            (0..num_channels).map(|_| buffer[i]).sum::<i32>() as i32
-                                / num_channels as i32
-                        })
+                        .map(|i| (0..num_channels).map(|_| buffer[i]).sum::<i32>() as i32 / num_channels as i32)
                         .collect()
                 } else {
                     block.into_buffer()
                 };
 
-                // TODO is this the right delay?
-                self.queue.insert(data, self.time_delay - self.latency);
+                let server_now = self.instant.elapsed() + self.time_diff;
+                let delay = (timestamp - server_now) + self.delay;
+
+                if delay.is_positive() {
+                    self.queue.insert(data, delay.try_into()?);
+                }
 
                 Ok(())
             }

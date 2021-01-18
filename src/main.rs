@@ -43,12 +43,9 @@ async fn main() -> Result<()> {
 
     // SimpleLogger::new().init().unwrap();
 
-    let BASS_RANGE =
-        ((20.0 / BASS_BIN_SIZE).round() as usize..(250.0 / BASS_BIN_SIZE).round() as usize);
-    let MID_RANGE =
-        ((250.0 / BASS_BIN_SIZE).round() as usize..(4_000.0 / BASS_BIN_SIZE).round() as usize);
-    let TREB_RANGE =
-        ((4_000.0 / BASS_BIN_SIZE).round() as usize..(20_000.0 / BASS_BIN_SIZE).round() as usize);
+    let BASS_RANGE = ((20.0 / BASS_BIN_SIZE).round() as usize..(250.0 / BASS_BIN_SIZE).round() as usize);
+    let MID_RANGE = ((250.0 / BASS_BIN_SIZE).round() as usize..(4_000.0 / BASS_BIN_SIZE).round() as usize);
+    let TREB_RANGE = ((4_000.0 / BASS_BIN_SIZE).round() as usize..(20_000.0 / BASS_BIN_SIZE).round() as usize);
 
     let BASS_EQ = 80.0 / 1_000_000.0;
     let MID_EQ = 80.0 / 100_000.0;
@@ -173,30 +170,17 @@ async fn main() -> Result<()> {
         //     treb_file.write(b"-----\n").await?;
         // }
 
-        let bass = (freqs[BASS_RANGE.clone()]
-            .iter()
-            .map(|(_, s)| s)
-            .sum::<f64>()
-            / BASS_RANGE.len() as f64
-            * BASS_EQ)
+        let bass = (freqs[BASS_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / BASS_RANGE.len() as f64 * BASS_EQ)
             .min(255.0) as usize;
-        let mid = (freqs[MID_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>()
-            / MID_RANGE.len() as f64
-            * MID_EQ)
+        let mid = (freqs[MID_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / MID_RANGE.len() as f64 * MID_EQ)
             .min(255.0) as usize;
-        let treb = (freqs[TREB_RANGE.clone()]
-            .iter()
-            .map(|(_, s)| s)
-            .sum::<f64>()
-            / TREB_RANGE.len() as f64
-            * TREB_EQ)
+        let treb = (freqs[TREB_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / TREB_RANGE.len() as f64 * TREB_EQ)
             .min(255.0) as usize;
 
         println!("{}", "X".repeat(bass));
         println!("{}", "X".repeat(mid));
         println!("{}", "X".repeat(treb));
         println!("")
-
 
         // freqs.sort_by(|(_,x), (_,y)| x.partial_cmp(y).unwrap().reverse());
 

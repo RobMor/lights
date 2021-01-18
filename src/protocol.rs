@@ -1,12 +1,12 @@
 use anyhow::{anyhow, Context, Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use chrono::{DateTime, Local, TimeZone};
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::Cursor;
-use std::time::{Duration, Instant};
+use std::ops::{Add, Div, Sub};
+use time::{Duration, Instant, NumericalDuration};
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio_util::codec::Framed;
@@ -21,9 +21,8 @@ pub struct SnapStream {
 }
 
 impl SnapStream {
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<SnapStream> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A, instant: Instant) -> Result<SnapStream> {
         let stream = TcpStream::connect(addr).await?;
-        let instant = Instant::now();
 
         Ok(SnapStream {
             stream: Framed::new(stream, SnapCodec::new(instant)),
@@ -32,13 +31,15 @@ impl SnapStream {
         })
     }
 
+    // TODO impl sink
     pub async fn send(&mut self, msg: SnapKind) -> Result<()> {
+        let sent = self.instant.elapsed();
         let msg = SnapMessage {
             base: SnapBase {
                 id: self.current_id,
                 refers_to: 0,
-                received: Duration::new(0, 0),
-                sent: self.instant.elapsed(),
+                received: sent, // The recipient overwrites this field
+                sent: sent,
             },
             kind: msg,
         };
@@ -63,17 +64,10 @@ impl SnapStream {
     //     self.stream.send(msg).await
     // }
 
+    // TODO impl stream
     pub async fn next(&mut self) -> Option<Result<SnapMessage>> {
         self.stream.next().await
     }
-}
-
-#[derive(Debug)]
-pub struct SnapBase {
-    pub id: u16,
-    pub refers_to: u16,
-    pub received: Duration,
-    pub sent: Duration,
 }
 
 #[derive(Debug)]
@@ -89,27 +83,21 @@ impl SnapMessage {
 }
 
 #[derive(Debug)]
+pub struct SnapBase {
+    pub id: u16,
+    pub refers_to: u16,
+    pub received: Duration,
+    pub sent: Duration,
+}
+
+#[derive(Debug)]
 pub enum SnapKind {
-    CodecHeader {
-        codec: String,
-        payload: Bytes,
-    },
-    WireChunk {
-        timestamp: DateTime<Local>,
-        payload: Bytes,
-    },
-    ServerSettings {
-        settings: SnapServerSettings,
-    },
-    Time {
-        latency: Duration,
-    },
-    Hello {
-        payload: SnapHello,
-    },
-    StreamTags {
-        tags: HashMap<String, String>,
-    },
+    CodecHeader { codec: String, payload: Bytes },
+    WireChunk { timestamp: Duration, payload: Bytes },
+    ServerSettings { settings: SnapServerSettings },
+    Time { delta: Duration },
+    Hello { payload: SnapHello },
+    StreamTags { tags: HashMap<String, String> },
 }
 
 impl SnapKind {
@@ -126,13 +114,9 @@ impl SnapKind {
 
     fn size(&self) -> u32 {
         match self {
-            SnapKind::CodecHeader { codec, payload } => {
-                4 + codec.len() as u32 + 4 + payload.len() as u32
-            }
+            SnapKind::CodecHeader { codec, payload } => 4 + codec.len() as u32 + 4 + payload.len() as u32,
             SnapKind::WireChunk { payload, .. } => 8 + 4 + payload.len() as u32,
-            SnapKind::ServerSettings { settings } => {
-                4 + serde_json::to_vec(&settings).unwrap().len() as u32
-            }
+            SnapKind::ServerSettings { settings } => 4 + serde_json::to_vec(&settings).unwrap().len() as u32,
             SnapKind::Time { .. } => 8,
             SnapKind::Hello { payload } => 4 + serde_json::to_vec(&payload).unwrap().len() as u32,
             SnapKind::StreamTags { tags } => 4 + serde_json::to_vec(&tags).unwrap().len() as u32,
@@ -143,7 +127,8 @@ impl SnapKind {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapServerSettings {
-    pub buffer_ms: usize,
+    #[serde(deserialize_with = "deserialize_duration", serialize_with = "serialize_duration")]
+    pub buffer_ms: Duration,
     #[serde(deserialize_with = "deserialize_duration", serialize_with = "serialize_duration")]
     pub latency: Duration,
     pub muted: bool,
@@ -151,11 +136,11 @@ pub struct SnapServerSettings {
 }
 
 fn deserialize_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
-    Ok(Duration::from_millis(Deserialize::deserialize(d)?))
+    Ok(Duration::milliseconds(Deserialize::deserialize(d)?))
 }
 
 fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_u128(d.as_millis())
+    s.serialize_i128(d.whole_milliseconds())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -216,18 +201,21 @@ impl Decoder for SnapCodec {
             return Ok(None);
         }
 
+        let received = self.instant.elapsed();
+
         let base = SnapBase {
             id,
             refers_to,
             received: self.instant.elapsed(),
-            sent: Duration::from_secs(sent_sec as u64)
-                + Duration::from_millis(sent_usec as u64 / 1000),
+            sent: sent_sec.seconds() + sent_usec.microseconds(),
         };
 
         // We successfully read the base message so move past it
         src.advance(BASE_MESSAGE_SIZE);
         // Cut out the message data from the source buffer
         let mut data = src.split_to(size as usize);
+        // Reserve enough space for the next base message
+        src.reserve(BASE_MESSAGE_SIZE);
 
         match msg_type {
             1 => {
@@ -252,8 +240,7 @@ impl Decoder for SnapCodec {
                 Ok(Some(SnapMessage {
                     base: base,
                     kind: SnapKind::WireChunk {
-                        timestamp: Local
-                            .timestamp(timestamp_sec as i64, timestamp_usec as u32 * 1000),
+                        timestamp: timestamp_sec.seconds() + timestamp_usec.microseconds(),
                         payload,
                     },
                 }))
@@ -261,8 +248,7 @@ impl Decoder for SnapCodec {
             3 => {
                 let size = data.get_u32_le();
                 let payload = data.split_to(size as usize);
-                let settings = serde_json::from_slice(&payload)
-                    .context("Error while parsing server settings JSON")?;
+                let settings = serde_json::from_slice(&payload).context("Error while parsing server settings JSON")?;
 
                 Ok(Some(SnapMessage {
                     base: base,
@@ -276,16 +262,14 @@ impl Decoder for SnapCodec {
                 Ok(Some(SnapMessage {
                     base: base,
                     kind: SnapKind::Time {
-                        latency: Duration::from_secs(latency_sec.try_into()?)
-                            + Duration::from_micros(latency_usec.try_into()?),
+                        delta: latency_sec.seconds() + latency_usec.microseconds(),
                     },
                 }))
             }
             5 => {
                 let size = data.get_u32_le();
                 let payload = data.split_to(size as usize);
-                let payload =
-                    serde_json::from_slice(&payload).context("Error while parsing Hello JSON")?;
+                let payload = serde_json::from_slice(&payload).context("Error while parsing Hello JSON")?;
 
                 Ok(Some(SnapMessage {
                     base: base,
@@ -295,8 +279,7 @@ impl Decoder for SnapCodec {
             6 => {
                 let size = data.get_u32_le();
                 let payload = data.split_to(size as usize);
-                let tags = serde_json::from_slice(&payload)
-                    .context("Error while parsing stream tags JSON")?;
+                let tags = serde_json::from_slice(&payload).context("Error while parsing stream tags JSON")?;
 
                 Ok(Some(SnapMessage {
                     base: base,
@@ -318,10 +301,10 @@ impl Encoder<SnapMessage> for SnapCodec {
         dst.put_u16_le(item.kind.id());
         dst.put_u16_le(item.base.id);
         dst.put_u16_le(item.base.refers_to);
-        dst.put_i32_le(item.base.received.as_secs().try_into()?);
-        dst.put_i32_le(item.base.received.subsec_micros().try_into()?);
-        dst.put_i32_le(item.base.sent.as_secs().try_into()?);
-        dst.put_i32_le(item.base.sent.subsec_micros().try_into()?);
+        dst.put_i32_le(item.base.received.whole_seconds().try_into()?);
+        dst.put_i32_le(item.base.received.subsec_microseconds().try_into()?);
+        dst.put_i32_le(item.base.sent.whole_seconds().try_into()?);
+        dst.put_i32_le(item.base.sent.subsec_microseconds().try_into()?);
         dst.put_u32_le(item.kind.size());
 
         match item.kind {
@@ -333,8 +316,8 @@ impl Encoder<SnapMessage> for SnapCodec {
                 dst.put_slice(&payload);
             }
             SnapKind::WireChunk { timestamp, payload } => {
-                dst.put_i32_le(timestamp.timestamp().try_into()?);
-                dst.put_i32_le(timestamp.timestamp_subsec_micros().try_into()?);
+                dst.put_i32_le(timestamp.whole_seconds().try_into()?);
+                dst.put_i32_le(timestamp.subsec_microseconds().try_into()?);
                 dst.put_u32_le(payload.len() as u32);
                 dst.put_slice(&payload);
             }
@@ -343,9 +326,9 @@ impl Encoder<SnapMessage> for SnapCodec {
                 dst.put_u32_le(payload.len().try_into()?);
                 dst.put_slice(&payload);
             }
-            SnapKind::Time { latency } => {
-                dst.put_u32_le(latency.as_secs().try_into()?);
-                dst.put_u32_le(latency.subsec_micros());
+            SnapKind::Time { delta } => {
+                dst.put_i32_le(delta.whole_seconds().try_into()?);
+                dst.put_i32_le(delta.subsec_microseconds().try_into()?);
             }
             SnapKind::Hello { payload } => {
                 let payload = serde_json::to_vec(&payload)?;
