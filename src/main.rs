@@ -55,26 +55,12 @@ async fn main() -> Result<()> {
     let bass_window: Vec<f64> = (0..BASS_BUFFER_SIZE)
         .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (BASS_BUFFER_SIZE - 1) as f64).cos()))
         .collect();
-    let mid_window: Vec<f64> = (0..MID_BUFFER_SIZE)
-        .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (MID_BUFFER_SIZE - 1) as f64).cos()))
-        .collect();
-    let treb_window: Vec<f64> = (0..TREB_BUFFER_SIZE)
-        .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (TREB_BUFFER_SIZE - 1) as f64).cos()))
-        .collect();
-
-    // if let Err(_) = nix::unistd::access(FIFO_PATH, nix::unistd::AccessFlags::F_OK) {
-    //     nix::unistd::mkfifo(FIFO_PATH, nix::sys::stat::Mode::from_bits(0o664).unwrap())?;
-    // }
-
-    // info!("Here");
-
-    // let mut fifo = BufWriter::new(OpenOptions::new().write(true).create(true).mode(0o644).open(FIFO_PATH).await?);
-
-    // info!("Here");
-
-    // let mut samples = BufWriter::new(File::create("samples.txt").await?);
-    // let mut bass_file = BufWriter::new(File::create("bass_freqs.txt").await?);
-    // let mut treb_file = BufWriter::new(File::create("treb_freqs.txt").await?);
+    // let mid_window: Vec<f64> = (0..MID_BUFFER_SIZE)
+    //     .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (MID_BUFFER_SIZE - 1) as f64).cos()))
+    //     .collect();
+    // let treb_window: Vec<f64> = (0..TREB_BUFFER_SIZE)
+    //     .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (TREB_BUFFER_SIZE - 1) as f64).cos()))
+    //     .collect();
 
     // Sample buffer of BASS buffer size since it's the biggest
     let mut buf = [Complex::zero(); BASS_BUFFER_SIZE];
@@ -82,16 +68,16 @@ async fn main() -> Result<()> {
     // We need separate buffers because the FFT mutates the buffer
     let mut bass_fft_buf = [Complex::zero(); BASS_BUFFER_SIZE];
     let mut bass_out_buf = [Complex::zero(); BASS_BUFFER_SIZE];
-    let mut mid_fft_buf = [Complex::zero(); MID_BUFFER_SIZE];
-    let mut mid_out_buf = [Complex::zero(); MID_BUFFER_SIZE];
-    let mut treb_fft_buf = [Complex::zero(); TREB_BUFFER_SIZE];
-    let mut treb_out_buf = [Complex::zero(); TREB_BUFFER_SIZE];
+    // let mut mid_fft_buf = [Complex::zero(); MID_BUFFER_SIZE];
+    // let mut mid_out_buf = [Complex::zero(); MID_BUFFER_SIZE];
+    // let mut treb_fft_buf = [Complex::zero(); TREB_BUFFER_SIZE];
+    // let mut treb_out_buf = [Complex::zero(); TREB_BUFFER_SIZE];
 
     let mut planner = FFTplanner::new(false);
 
     let bass_fft = planner.plan_fft(BASS_BUFFER_SIZE);
-    let mid_fft = planner.plan_fft(MID_BUFFER_SIZE);
-    let treb_fft = planner.plan_fft(TREB_BUFFER_SIZE);
+    // let mid_fft = planner.plan_fft(MID_BUFFER_SIZE);
+    // let treb_fft = planner.plan_fft(TREB_BUFFER_SIZE);
 
     info!("Connecting to SnapServer");
     let mut client = SnapClient::discover().await?;
@@ -110,16 +96,8 @@ async fn main() -> Result<()> {
 
         // Copy samples into FFT buffers
         bass_fft_buf.copy_from_slice(&buf[..BASS_BUFFER_SIZE]);
-        mid_fft_buf.copy_from_slice(&buf[..MID_BUFFER_SIZE]);
-        treb_fft_buf.copy_from_slice(&buf[..TREB_BUFFER_SIZE]);
-
-        // if buf[buf.len() - 1].re != 0.0 {
-        //     for sample in buf.iter() {
-        //         samples.write(format!("{}\n", sample.re).as_bytes()).await?;
-        //     }
-
-        //     samples.write(b"-----\n").await?;
-        // }
+        // mid_fft_buf.copy_from_slice(&buf[..MID_BUFFER_SIZE]);
+        // treb_fft_buf.copy_from_slice(&buf[..TREB_BUFFER_SIZE]);
 
         // Apply hann windowing
         // TODO could do this in the same step as copy_from_slice
@@ -127,19 +105,19 @@ async fn main() -> Result<()> {
             .iter_mut()
             .enumerate()
             .for_each(|(i, e)| *e *= bass_window[i]);
-        mid_fft_buf
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, e)| *e *= mid_window[i]);
-        treb_fft_buf
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, e)| *e *= treb_window[i]);
+        // mid_fft_buf
+        //     .iter_mut()
+        //     .enumerate()
+        //     .for_each(|(i, e)| *e *= mid_window[i]);
+        // treb_fft_buf
+        //     .iter_mut()
+        //     .enumerate()
+        //     .for_each(|(i, e)| *e *= treb_window[i]);
 
         // Perform the FFT
         bass_fft.process(&mut bass_fft_buf, &mut bass_out_buf);
-        mid_fft.process(&mut mid_fft_buf, &mut mid_out_buf);
-        treb_fft.process(&mut treb_fft_buf, &mut treb_out_buf);
+        // mid_fft.process(&mut mid_fft_buf, &mut mid_out_buf);
+        // treb_fft.process(&mut treb_fft_buf, &mut treb_out_buf);
 
         let freqs = bass_out_buf
             .iter()
@@ -147,28 +125,6 @@ async fn main() -> Result<()> {
             .take(BASS_BUFFER_SIZE / 2)
             .enumerate()
             .collect::<Vec<(usize, f64)>>();
-
-        // if buf[buf.len() - 1].re != 0.0 {
-        //     for (i, freq) in freqs.iter() {
-        //         bass_file.write(format!("{}\n", freq).as_bytes()).await?;
-        //     }
-
-        //     bass_file.write(b"-----\n").await?;
-        // }
-
-        // let ffreqs = treb_out_buf.iter()
-        //     .map(|x| x.norm())
-        //     .take(TREB_BUFFER_SIZE / 2)
-        //     .enumerate()
-        //     .collect::<Vec<(usize, f64)>>();
-
-        // if buf[buf.len() - 1].re != 0.0 {
-        //     for (i, freq) in ffreqs.iter() {
-        //         treb_file.write(format!("{}\n", freq).as_bytes()).await?;
-        //     }
-
-        //     treb_file.write(b"-----\n").await?;
-        // }
 
         let bass = (freqs[BASS_RANGE.clone()].iter().map(|(_, s)| s).sum::<f64>() / BASS_RANGE.len() as f64 * BASS_EQ)
             .min(255.0) as usize;
