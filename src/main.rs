@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
             ChannelBuilder::new()
                 .pin(18)
                 .count(36)
-                .strip_type(StripType::Ws2811Rgb)
+                .strip_type(StripType::Ws2811Gbr)
                 .brightness(255)
                 .build()
         )
@@ -196,7 +196,7 @@ async fn main() -> Result<()> {
             } else if i / 12 == 1 {
                 *led = [mid_color.int_r(), mid_color.int_g(), mid_color.int_b(), 0];
             } else {
-                *led = [tre_color.int_r(), tre_color.int_r(), tre_color.int_r(), 0];
+                *led = [tre_color.int_r(), tre_color.int_g(), tre_color.int_b(), 0];
             }
         }
 
