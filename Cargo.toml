@@ -22,3 +22,5 @@ num-complex = "0.3"
 num-traits = "0.2"
 # Negative durations
 time = "0.2.24"
+rs_ws281x = "0.4.2"
+scarlet = "1.1.0"

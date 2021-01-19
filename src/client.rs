@@ -116,13 +116,14 @@ impl SnapClient {
                 Some(frame) = self.queue.next() => {
                     let frame = frame.context("Error while retrieving frame from queue")?;
 
+                    // TODO we are consistently about a millisecond or two late...
                     let time_over = frame.deadline().elapsed();
 
                     let frame = frame.into_inner();
 
                     // Make sure this frame isn't too old...
                     let length = self.header.as_ref().map_or(
-                        500.milliseconds(),
+                        20.milliseconds(),
                         |header| (frame.len() as f64 / header.streaminfo().sample_rate as f64).seconds()
                     );
 
