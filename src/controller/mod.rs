@@ -1,5 +1,8 @@
 use tokio::sync::mpsc;
 
+pub mod blank;
+pub mod music;
+
 use crate::NUM_LIGHTS;
 
 #[derive(Debug)]

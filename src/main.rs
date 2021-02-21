@@ -4,16 +4,17 @@ use std::collections::{BinaryHeap, HashMap};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-mod blank;
 mod client;
+mod cmap;
 mod controller;
 mod lights;
-mod music;
 mod protocol;
 
-use blank::BlankController;
-use controller::{InMessage, OutMessage, Token};
-use music::MusicController;
+use controller::{
+    InMessage, OutMessage, Token,
+    music::MusicController,
+    blank::BlankController,
+};
 
 pub const NUM_LIGHTS: usize = 3;
 

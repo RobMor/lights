@@ -2,10 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use num_complex::Complex;
 use num_traits::Zero;
 use rustfft::{algorithm::Radix4, Fft, FftDirection};
-use scarlet::{
-    colormap::{ColorMap, ListedColorMap},
-    prelude::*,
-};
 use std::f64::consts::PI;
 use std::ops::Range;
 use std::time::Duration;
@@ -15,6 +11,7 @@ use tokio::time::sleep;
 
 use crate::client::SnapClient;
 use crate::controller::{InMessage, OutMessage, Token};
+use crate::cmap::INFERNO_DATA;
 use crate::NUM_LIGHTS;
 
 /// The number of times we try reconnecting to the snapserver before giving up
@@ -38,8 +35,6 @@ pub struct MusicController {
     token: Token,
     rx: mpsc::Receiver<InMessage>,
     tx: mpsc::Sender<(Token, OutMessage)>,
-
-    cmap: ListedColorMap,
 
     hann_window: Vec<f64>,
     fft: Radix4<f64>,
@@ -89,9 +84,6 @@ impl MusicController {
                 token,
                 rx,
                 tx,
-
-                // TODO dynamic color maps...
-                cmap: ListedColorMap::inferno(),
 
                 hann_window: (0..BUFFER_SIZE)
                     .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / (BUFFER_SIZE - 1) as f64).cos()))
@@ -285,9 +277,10 @@ impl MusicController {
         let mut colors = [[0; 3]; 3];
 
         for (color, state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
-            let mapped: RGBColor = self.cmap.transform_single(state.val / 255.0);
+            // let mapped: RGBColor = self.cmap.transform_single(state.val / 255.0);
+            let mapped = INFERNO_DATA[state.val as usize];
 
-            *color = [mapped.int_r(), mapped.int_g(), mapped.int_b()];
+            *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8]; // [mapped.int_r(), mapped.int_g(), mapped.int_b()];
         }
 
         Ok(colors)

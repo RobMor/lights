@@ -10,7 +10,7 @@ pub fn start(mut rx: mpsc::Receiver<[[u8; 3]; NUM_LIGHTS]>) -> JoinHandle<Result
         log::info!("Starting Lights");
 
         // TODO we can't do this in some kind of setup function becase Controller doesn't implement Send...
-        let mut controller = ControllerBuilder::new()
+        let mut controller = match ControllerBuilder::new()
             .channel(
                 0,
                 ChannelBuilder::new()
@@ -20,7 +20,13 @@ pub fn start(mut rx: mpsc::Receiver<[[u8; 3]; NUM_LIGHTS]>) -> JoinHandle<Result
                     .brightness(255)
                     .build(),
             )
-            .build()?;
+            .build() {
+                Ok(controller) => controller,
+                Err(e) => {
+                    log::error!("Failed to build controller: {}", e);
+                    return Err(e.into())
+                }
+            };
 
         log::trace!("Entering main loop");
 

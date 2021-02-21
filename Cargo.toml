@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["rob"]
 edition = "2018"
 
+[[bin]]
+name = "lights"
+path = "src/main.rs"
+
 [dependencies]
 log = "0.4.11"
 simple_logger = "1.11.0"
@@ -23,4 +27,3 @@ num-traits = "0.2"
 # Negative durations
 time = "0.2.24"
 rs_ws281x = "0.4.2"
-scarlet = "1.1.0"
