@@ -728,6 +728,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "primal-check"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01419cee72c1a1ca944554e23d83e483e1bccf378753344e881de28b5487511d"
+dependencies = [
+ "num-integer",
+]
+
+[[package]]
 name = "proc-macro-error"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -875,13 +884,14 @@ dependencies = [
 
 [[package]]
 name = "rustfft"
-version = "4.1.0"
+version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f107ffb2ec15915d932b7b1537fe4d6efb36955ee2b06f8f759c80a0725f80b1"
+checksum = "a2af893d9cfb30d3d2f2ac4bd2a071232143558e06e791dc768179f0089f68f8"
 dependencies = [
  "num-complex 0.3.1",
  "num-integer",
  "num-traits",
+ "primal-check",
  "strength_reduce",
  "transpose",
 ]

@@ -8,7 +8,7 @@ edition = "2018"
 log = "0.4.11"
 simple_logger = "1.11.0"
 tokio = { version = "1.0.1", features = ["full"] }
-tokio-util = { version = "0.6.0", features = ["codec", "time"] }
+tokio-util = { version = "0.6", features = ["codec", "time"] }
 mdns = { path = "../mdns" } # Pull request for tokio-1.0
 futures = "0.3.8"
 anyhow = "1.0.36"
@@ -17,7 +17,7 @@ serde = { version = "1.0.118", features = ["derive"] }
 mac_address = "1.1.1"
 bytes = "1.0"
 claxon = { path = "../claxon" } # Hacked together streaming api
-rustfft = "4.1.0"
+rustfft = "5.0.1"
 num-complex = "0.3"
 num-traits = "0.2"
 # Negative durations

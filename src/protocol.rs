@@ -5,7 +5,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::Cursor;
-use std::ops::{Add, Div, Sub};
 use time::{Duration, Instant, NumericalDuration};
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;

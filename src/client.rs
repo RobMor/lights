@@ -1,8 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use bytes::Buf;
 use claxon::{Block, FlacHeader};
-use futures::{pin_mut, sink::SinkExt, stream::StreamExt};
-use log::{debug, info};
+use futures::{pin_mut, stream::StreamExt};
 use mac_address::get_mac_address;
 use mdns::RecordKind;
 use std::convert::TryInto;
@@ -41,7 +40,7 @@ impl SnapClient {
             let mut addr: Option<IpAddr> = None;
             let mut port: Option<u16> = None;
 
-            info!("Got response");
+            log::info!("Got response");
 
             for record in response.records() {
                 match record.kind {
@@ -54,10 +53,10 @@ impl SnapClient {
             }
 
             if let (Some(addr), Some(port)) = (addr, port) {
-                info!("Got addr {} and port {} from response", addr, port);
+                log::info!("Got addr {} and port {} from response", addr, port);
                 return SnapClient::connect((addr, port)).await;
             } else {
-                info!("Failed to find addr and port from response");
+                log::info!("Failed to find addr and port from response");
             }
         }
 
@@ -185,7 +184,10 @@ impl SnapClient {
                     // Here we are just taking the average of all the channels to produce one channel.
 
                     (0..block_size)
-                        .map(|i| (0..num_channels).map(|j| buffer[i + block_size * j]).sum::<i32>() as i32 / num_channels as i32)
+                        .map(|i| {
+                            (0..num_channels).map(|j| buffer[i + block_size * j]).sum::<i32>() as i32
+                                / num_channels as i32
+                        })
                         .collect()
                 } else {
                     // Small optimization, just return the block of data if it only has one channel.
