@@ -4,11 +4,10 @@ use std::collections::{BinaryHeap, HashMap};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-mod client;
+mod snap;
 mod cmap;
 mod controller;
 mod lights;
-mod protocol;
 
 use controller::{
     InMessage, OutMessage, Token,

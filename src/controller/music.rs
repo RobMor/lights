@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::client::SnapClient;
+use crate::snap::client::SnapClient;
 use crate::controller::{InMessage, OutMessage, Token};
 use crate::cmap::INFERNO_DATA;
 use crate::NUM_LIGHTS;
@@ -277,10 +277,9 @@ impl MusicController {
         let mut colors = [[0; 3]; 3];
 
         for (color, state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
-            // let mapped: RGBColor = self.cmap.transform_single(state.val / 255.0);
             let mapped = INFERNO_DATA[state.val as usize];
 
-            *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8]; // [mapped.int_r(), mapped.int_g(), mapped.int_b()];
+            *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8];
         }
 
         Ok(colors)
