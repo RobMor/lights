@@ -48,7 +48,7 @@ fn setup_blank(token: Token, out_tx: mpsc::Sender<(Token, OutMessage)>) -> Contr
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new().with_level(log::LevelFilter::Debug).init().unwrap();
 
     // TODO what is a good size bound?
     // TODO make the tx un-cloneable

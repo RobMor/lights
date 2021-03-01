@@ -247,7 +247,8 @@ impl MusicController {
             .map(|x| x.norm())
             .collect::<Vec<f64>>();
 
-        for state in self.spectrum_state.iter_mut() {
+        // Iterate through different spectrum bars
+        for (i, state) in self.spectrum_state.iter_mut().enumerate() {
             // Average the range of frequencies
             state.val = freqs[state.freq_range.clone()].iter().sum::<f64>() / state.freq_range.len() as f64;
 
@@ -258,12 +259,13 @@ impl MusicController {
             // TODO might not be necessary with three bars
 
             // Apply gravity
-            // TODO this can underflow and rust panics when that happens...
             state.prev_val = state.prev_val - (GRAVITY * state.falling_ticks.pow(2) as f64);
             state.val = if state.val < state.prev_val {
+                // log::debug!("[{}] Kept falling (val: {}, prev_val: {}, falling ticks: {})", i, state.val, state.prev_val, state.falling_ticks);
                 state.falling_ticks += 1;
                 state.prev_val
             } else {
+                // log::debug!("[{}] Stopped falling (val: {}, prev_val: {}, falling ticks: {})", i, state.val, state.prev_val, state.falling_ticks);
                 state.prev_val = state.val;
                 state.falling_ticks = 0;
                 state.val

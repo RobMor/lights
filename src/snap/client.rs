@@ -10,7 +10,7 @@ use time::{Duration, Instant, NumericalDuration};
 use tokio::net::ToSocketAddrs;
 use tokio_util::time::DelayQueue;
 
-use crate::protocol::{SnapHello, SnapKind, SnapMessage, SnapStream};
+use crate::snap::protocol::{SnapHello, SnapKind, SnapMessage, SnapStream};
 
 /// The MDNS service name that the snapserver uses
 const SERVICE_NAME: &'static str = "_snapcast._tcp.local";

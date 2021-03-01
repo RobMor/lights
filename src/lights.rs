@@ -42,6 +42,11 @@ pub fn start(mut rx: mpsc::Receiver<[[u8; 3]; NUM_LIGHTS]>) -> JoinHandle<Result
                     *led = [color[2][0], color[2][1], color[2][2], 0];
                 }
             }
+
+            match controller.render() {
+                Ok(()) => log::trace!("Sucessfully set color"),
+                Err(e) => log::error!("Failed to set color: {}", e),
+            }
         }
 
         log::info!("Lights stopping");
