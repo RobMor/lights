@@ -4,17 +4,18 @@ pub mod blank;
 pub mod music;
 
 use crate::NUM_LIGHTS;
+use crate::Color;
 
 #[derive(Debug)]
 pub enum InMessage {
-    GrantAccess(mpsc::Sender<[[u8; 3]; NUM_LIGHTS]>),
+    GrantAccess(mpsc::Sender<[Color; NUM_LIGHTS]>),
     RevokeAccess,
 }
 
 #[derive(Debug)]
 pub enum OutMessage {
     RequestAccess,
-    RescindAccess(mpsc::Sender<[[u8; 3]; NUM_LIGHTS]>),
+    RescindAccess(mpsc::Sender<[Color; NUM_LIGHTS]>),
 }
 
 #[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug)]

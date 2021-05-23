@@ -13,6 +13,7 @@ use crate::snap::client::SnapClient;
 use crate::controller::{InMessage, OutMessage, Token};
 use crate::cmap::INFERNO_DATA;
 use crate::NUM_LIGHTS;
+use crate::Color;
 
 /// The number of times we try reconnecting to the snapserver before giving up
 const NUM_RETRIES: usize = 5;
@@ -25,11 +26,32 @@ const BIN_SIZE: f64 = SAMPLE_RATE as f64 / BUFFER_SIZE as f64;
 /// The rate at which each bar decreases (positive means down)
 const GRAVITY: f64 = 9.8; // TODO find the right value
 
+const INTEGRAL: f64 = 0.77; // TODO
+
+const BAS_FREQ_LOW: f64 = 20.0;
+const BAS_FREQ_HIGH: f64 = 250.0;
+
+const MID_FREQ_LOW: f64 = 250.0;
+const MID_FREQ_HIGH: f64 = 3_000.0;
+
+const TRE_FREQ_LOW: f64 = 3_000.0;
+const TRE_FREQ_HIGH: f64 = 20_000.0;
+
+// TODO these don't need to be constants...
+const BAS_INDEX_LOW: f64 = BAS_FREQ_LOW / BIN_SIZE;
+const BAS_INDEX_HIGH: f64 = BAS_FREQ_HIGH / BIN_SIZE;
+
+const MID_INDEX_LOW: f64 = MID_FREQ_LOW / BIN_SIZE;
+const MID_INDEX_HIGH: f64 = MID_FREQ_HIGH / BIN_SIZE;
+
+const TRE_INDEX_LOW: f64 = TRE_FREQ_LOW / BIN_SIZE;
+const TRE_INDEX_HIGH: f64 = TRE_FREQ_HIGH / BIN_SIZE;
+
 // EQ values to balance out each set of frequencies
 // TODO make these dynamic in some way
-const BAS_EQ: f64 = 80.0 / 1_000_000.0;
-const MID_EQ: f64 = 80.0 / 500_000.0;
-const TRE_EQ: f64 = 80.0 / 10_000.0;
+const BAS_EQ: f64 = 1.0 / 10_000.0;
+const MID_EQ: f64 = 1.0 / 1_000.0;
+const TRE_EQ: f64 = 1.0 / 200.0;
 
 pub struct MusicController {
     token: Token,
@@ -49,6 +71,7 @@ pub struct MusicController {
 struct SpectrumState {
     val: f64,
     prev_val: f64,
+    integral: f64,
     falling_ticks: u8,
     eq: f64,
     freq_range: Range<usize>,
@@ -59,6 +82,7 @@ impl SpectrumState {
         SpectrumState {
             val: 0.0,
             prev_val: 0.0,
+            integral: 0.0,
             falling_ticks: 0,
             eq: eq,
             freq_range: range,
@@ -97,15 +121,15 @@ impl MusicController {
                 // TODO dynamic frequency ranges...
                 spectrum_state: [
                     SpectrumState::new(
-                        (20.0 / BIN_SIZE).round() as usize..(250.0 / BIN_SIZE).round() as usize,
+                        BAS_INDEX_LOW.round() as usize..BAS_INDEX_HIGH.round() as usize,
                         BAS_EQ,
                     ), // BASS
                     SpectrumState::new(
-                        (250.0 / BIN_SIZE).round() as usize..(4_000.0 / BIN_SIZE).round() as usize,
+                        MID_INDEX_LOW.round() as usize..MID_INDEX_HIGH.round() as usize,
                         MID_EQ,
                     ), // MID
                     SpectrumState::new(
-                        (4_000.0 / BIN_SIZE).round() as usize..(20_000.0 / BIN_SIZE).round() as usize,
+                        TRE_INDEX_LOW.round() as usize..TRE_INDEX_HIGH.round() as usize,
                         TRE_EQ,
                     ), // TREBLE
                 ],
@@ -153,7 +177,7 @@ impl MusicController {
 
     async fn mainloop(&mut self, mut client: SnapClient) -> Result<()> {
         let mut has_requested_access = false;
-        let mut sender: Option<mpsc::Sender<[[u8; 3]; NUM_LIGHTS]>> = None;
+        let mut sender: Option<mpsc::Sender<[Color; NUM_LIGHTS]>> = None;
 
         loop {
             tokio::select! {
@@ -213,7 +237,7 @@ impl MusicController {
         }
     }
 
-    async fn process_frame(&mut self, frame: Vec<i32>) -> Result<[[u8; 3]; 3]> {
+    async fn process_frame(&mut self, frame: Vec<i32>) -> Result<[Color; NUM_LIGHTS]> {
         // TODO could do this in the same step as copying it to the buffer and save memory
         let in_buf: Vec<Complex<f64>> = frame
             .iter()
@@ -259,7 +283,7 @@ impl MusicController {
             // TODO might not be necessary with three bars
 
             // Apply gravity
-            state.prev_val = state.prev_val - (GRAVITY * state.falling_ticks.pow(2) as f64);
+            state.prev_val = state.prev_val - (GRAVITY * state.falling_ticks as f64);
             state.val = if state.val < state.prev_val {
                 // log::debug!("[{}] Kept falling (val: {}, prev_val: {}, falling ticks: {})", i, state.val, state.prev_val, state.falling_ticks);
                 state.falling_ticks += 1;
@@ -271,17 +295,24 @@ impl MusicController {
                 state.val
             };
 
+            // Apply Integral Smoothing ???
+            state.val = state.integral * INTEGRAL + state.val;
+            state.integral = state.integral * (1.0 - 1.0 / (20.0 * ((255.0 - state.val).max(0.0) + 1.0)));
+
             // Apply scaling
             // TODO scale based on mean and stddev
             state.val = state.val.clamp(0.0, 255.0);
         }
 
-        let mut colors = [[0; 3]; 3];
+        let mut colors = [(0, [0; 3]); 3];
+        // let mut colors = [0; 3];
 
-        for (color, state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
+        for ((intensity, color), state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
             let mapped = INFERNO_DATA[state.val as usize];
 
+            *intensity = state.val as u8;
             *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8];
+            // *color = state.val as u8;
         }
 
         Ok(colors)

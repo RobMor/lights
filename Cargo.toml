@@ -27,3 +27,6 @@ num-traits = "0.2"
 # Negative durations
 time = "0.2.24"
 rs_ws281x = "0.4.2"
+
+# For the lights simulator
+druid = "0.7.0"

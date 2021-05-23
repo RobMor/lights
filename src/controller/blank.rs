@@ -33,7 +33,8 @@ impl BlankController {
                 InMessage::GrantAccess(s) => {
                     log::debug!("Received access to lights controller");
 
-                    match s.send([[0, 0, 0]; 3]).await {
+                    match s.send([(0, [0, 0, 0]); 3]).await {
+                    // match s.send([0; 3]).await {
                         Ok(()) => {
                             log::trace!("Successfully made lights blank");
                         }

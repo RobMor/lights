@@ -16,6 +16,8 @@ use controller::{
 };
 
 pub const NUM_LIGHTS: usize = 3;
+pub type Color = (u8, [u8; 3]);
+// pub type Color = u8;
 
 struct ControllerHandle {
     pub tx: mpsc::Sender<InMessage>,
