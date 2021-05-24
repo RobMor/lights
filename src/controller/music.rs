@@ -24,17 +24,17 @@ const BUFFER_SIZE: usize = 4096; // TODO making this 8092 caused stack overflows
 /// The size of each FFT bin in Hz
 const BIN_SIZE: f64 = SAMPLE_RATE as f64 / BUFFER_SIZE as f64;
 /// The rate at which each bar decreases (positive means down)
-const GRAVITY: f64 = 9.8; // TODO find the right value
+const GRAVITY: f64 = 1.0; // TODO find the right value
 
 const INTEGRAL: f64 = 0.77; // TODO
 
 const BAS_FREQ_LOW: f64 = 20.0;
-const BAS_FREQ_HIGH: f64 = 250.0;
+const BAS_FREQ_HIGH: f64 = 500.0;
 
 const MID_FREQ_LOW: f64 = 250.0;
-const MID_FREQ_HIGH: f64 = 3_000.0;
+const MID_FREQ_HIGH: f64 = 2_500.0;
 
-const TRE_FREQ_LOW: f64 = 3_000.0;
+const TRE_FREQ_LOW: f64 = 2_500.0;
 const TRE_FREQ_HIGH: f64 = 20_000.0;
 
 // TODO these don't need to be constants...
@@ -49,7 +49,7 @@ const TRE_INDEX_HIGH: f64 = TRE_FREQ_HIGH / BIN_SIZE;
 
 // EQ values to balance out each set of frequencies
 // TODO make these dynamic in some way
-const BAS_EQ: f64 = 1.0 / 10_000.0;
+const BAS_EQ: f64 = 1.0 / 8_000.0;
 const MID_EQ: f64 = 1.0 / 1_000.0;
 const TRE_EQ: f64 = 1.0 / 200.0;
 
@@ -69,10 +69,16 @@ pub struct MusicController {
 
 #[derive(Debug)]
 struct SpectrumState {
+    // Working vars
+    clamped_val: u8,
     val: f64,
-    prev_val: f64,
-    integral: f64,
-    falling_ticks: u8,
+    velocity: f64,
+
+    sensitivity: f64,
+    high_ticks: u8,
+    low_ticks: u8,
+    
+    // Constants
     eq: f64,
     freq_range: Range<usize>,
 }
@@ -80,10 +86,14 @@ struct SpectrumState {
 impl SpectrumState {
     fn new(range: Range<usize>, eq: f64) -> SpectrumState {
         SpectrumState {
+            clamped_val: 0,
             val: 0.0,
-            prev_val: 0.0,
-            integral: 0.0,
-            falling_ticks: 0,
+            velocity: 0.0,
+
+            sensitivity: 1.0,
+            high_ticks: 0,
+            low_ticks: 0,
+
             eq: eq,
             freq_range: range,
         }
@@ -274,43 +284,70 @@ impl MusicController {
         // Iterate through different spectrum bars
         for (i, state) in self.spectrum_state.iter_mut().enumerate() {
             // Average the range of frequencies
-            state.val = freqs[state.freq_range.clone()].iter().sum::<f64>() / state.freq_range.len() as f64;
+            let mut val = freqs[state.freq_range.clone()].iter().sum::<f64>() / state.freq_range.len() as f64;
 
             // Apply EQ
-            state.val = state.val * state.eq;
+            val = val * state.eq;
 
-            // Apply smoothing
-            // TODO might not be necessary with three bars
+            // // Apply sensitivity
+            // val = val * state.sensitivity;
+
+            // // Adjust sensitivity if values are too high or low for too long
+            // // TODO all these thresholds are arbitrary!!
+            // // TODO this reacts poorly to silence!!!
+            // if state.val > 5.0 && state.val < 75.0 {
+            //     state.high_ticks = state.high_ticks.saturating_sub(10);
+            //     state.low_ticks = state.low_ticks.saturating_add(1);
+
+            //     if state.low_ticks > 10 {
+            //         state.sensitivity *= 1.01;
+            //         state.low_ticks = state.low_ticks.saturating_sub(1);
+            //         log::info!("Increased sens {} {}", i, state.sensitivity);
+            //     }
+            // } else if state.val > 175.0 {
+            //     state.low_ticks = state.low_ticks.saturating_sub(10);
+            //     state.high_ticks = state.high_ticks.saturating_add(1);
+
+            //     if state.high_ticks > 10 {
+            //         state.sensitivity *= 0.98;
+            //         state.high_ticks = state.low_ticks.saturating_sub(1);
+            //         log::info!("Decreased sens {} {}", i, state.sensitivity);
+            //     }
+            // } else {
+            //     state.high_ticks = state.high_ticks.saturating_sub(10);
+            //     state.low_ticks = state.low_ticks.saturating_sub(10);
+            // }
 
             // Apply gravity
-            state.prev_val = state.prev_val - (GRAVITY * state.falling_ticks as f64);
-            state.val = if state.val < state.prev_val {
-                // log::debug!("[{}] Kept falling (val: {}, prev_val: {}, falling ticks: {})", i, state.val, state.prev_val, state.falling_ticks);
-                state.falling_ticks += 1;
-                state.prev_val
-            } else {
-                // log::debug!("[{}] Stopped falling (val: {}, prev_val: {}, falling ticks: {})", i, state.val, state.prev_val, state.falling_ticks);
-                state.prev_val = state.val;
-                state.falling_ticks = 0;
-                state.val
-            };
+            state.velocity -= GRAVITY;
 
-            // Apply Integral Smoothing ???
-            state.val = state.integral * INTEGRAL + state.val;
-            state.integral = state.integral * (1.0 - 1.0 / (20.0 * ((255.0 - state.val).max(0.0) + 1.0)));
+            // Did this new value make us move up?
+            if val < state.val {
+                // No
+                // Do nothing
+            } else {
+                // Yes
+                state.velocity = 0.0; // Stop falling
+
+                // How fast should we move up?
+                // This is an arbitrary formula that just seems to work well...
+                state.velocity += (val - state.val).sqrt();
+            }
+
+            state.val += state.velocity;
 
             // Apply scaling
             // TODO scale based on mean and stddev
-            state.val = state.val.clamp(0.0, 255.0);
+            state.clamped_val = state.val.clamp(0.0, 255.0) as u8;
         }
 
         let mut colors = [(0, [0; 3]); 3];
         // let mut colors = [0; 3];
 
         for ((intensity, color), state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
-            let mapped = INFERNO_DATA[state.val as usize];
+            let mapped = INFERNO_DATA[state.clamped_val as usize];
 
-            *intensity = state.val as u8;
+            *intensity = state.clamped_val;
             *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8];
             // *color = state.val as u8;
         }

@@ -66,12 +66,12 @@ impl Widget<LightState> for LightWidget {
         let point_width = size.width / NUM_POINTS as f64;
         let light_height = size.height / NUM_LIGHTS as f64;
 
-        for (light, color) in data.colors.iter().rev().enumerate() {
-            ctx.with_save(|ctx| {
-                // TODO this could probably be simplified
-                ctx.transform(Affine::translate((0.0, (light + 1) as f64 * light_height)));
-                ctx.transform(Affine::FLIP_Y);
+        ctx.with_save(|ctx| {
+            // TODO this is hard to reason about
+            ctx.transform(Affine::FLIP_Y); // Flip over y axis
+            ctx.transform(Affine::translate((0.0, -size.height))); // Translate so y = 0 is on the bottom of the window
 
+            for (light, color) in data.colors.iter().enumerate() {
                 let rect = Rect::new(0.0, 0.0, size.width, light_height);
                 ctx.fill(rect, color);
 
@@ -88,8 +88,12 @@ impl Widget<LightState> for LightWidget {
                 let inverted_color = druid::Color::rgb8(255 - r, 255 - g, 255 - b);
 
                 ctx.stroke(&graph[..], &inverted_color, 1.0);
-            })
-        }
+            
+                // We want lower numbered lights to be on the bottom
+                // Translate up by one light_height for the next graph
+                ctx.transform(Affine::translate((0.0, light_height))); 
+            }
+        });
     }
 }
 
