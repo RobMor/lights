@@ -12,7 +12,7 @@ use crate::NUM_LIGHTS;
 
 
 use druid::widget::prelude::*;
-use druid::{AppLauncher, WindowDesc, Selector, Rect, WidgetExt, Target, Affine};
+use druid::{AppLauncher, WindowDesc, Selector, Rect, WidgetExt, Target, Affine, RadialGradient};
 use druid::piet::kurbo::{Shape, PathEl};
 
 const SET_COLOR: Selector<[(u8, druid::Color); NUM_LIGHTS]> = Selector::new("lights.set-color");
@@ -64,36 +64,42 @@ impl Widget<LightState> for LightWidget {
     fn paint(&mut self, ctx: &mut PaintCtx, data: &LightState, _env: &Env) {
         let size = ctx.size();
         let point_width = size.width / NUM_POINTS as f64;
-        let light_height = size.height / NUM_LIGHTS as f64;
+        let light_height = size.height / 2.0 / NUM_LIGHTS as f64;
 
-        ctx.with_save(|ctx| {
-            // TODO this is hard to reason about
-            ctx.transform(Affine::FLIP_Y); // Flip over y axis
-            ctx.transform(Affine::translate((0.0, -size.height))); // Translate so y = 0 is on the bottom of the window
+        // ctx.with_save(|ctx| {
+        //     // TODO this is hard to reason about
+        //     ctx.transform(Affine::FLIP_Y); // Flip over y axis
+        //     ctx.transform(Affine::translate((0.0, -(NUM_LIGHTS as f64 * light_height)))); // Translate so y = 0 is on the bottom of the window
 
-            for (light, color) in data.colors.iter().enumerate() {
-                let rect = Rect::new(0.0, 0.0, size.width, light_height);
-                ctx.fill(rect, color);
+        //     for (light, color) in data.colors.iter().enumerate() {
+        //         let rect = Rect::new(0.0, 0.0, size.width, light_height);
+        //         ctx.fill(rect, color);
 
-                let graph: Vec<PathEl> = std::iter::once(PathEl::MoveTo((0.0, 0.0).into()))
-                        .chain((0..NUM_POINTS)
-                            .map(|n| {
-                                PathEl::LineTo((n as f64 * point_width, (data.intensities[light][(data.starts[light] + n) % NUM_POINTS] as f64 / 255.0) * light_height).into())
-                            }))
-                        .chain(std::iter::once(PathEl::MoveTo((0.0, 0.0).into())))
-                        .chain(std::iter::once(PathEl::ClosePath))
-                        .collect();
+        //         let graph: Vec<PathEl> = std::iter::once(PathEl::MoveTo((0.0, 0.0).into()))
+        //                 .chain((0..NUM_POINTS)
+        //                     .map(|n| {
+        //                         PathEl::LineTo((n as f64 * point_width, (data.intensities[light][(data.starts[light] + n) % NUM_POINTS] as f64 / 255.0) * light_height).into())
+        //                     }))
+        //                 .chain(std::iter::once(PathEl::MoveTo((0.0, 0.0).into())))
+        //                 .chain(std::iter::once(PathEl::ClosePath))
+        //                 .collect();
 
-                let (r, g, b, _) = color.as_rgba8();
-                let inverted_color = druid::Color::rgb8(255 - r, 255 - g, 255 - b);
+        //         let (r, g, b, _) = color.as_rgba8();
+        //         let inverted_color = druid::Color::rgb8(255 - r, 255 - g, 255 - b);
 
-                ctx.stroke(&graph[..], &inverted_color, 1.0);
+        //         ctx.stroke(&graph[..], &inverted_color, 1.0);
             
-                // We want lower numbered lights to be on the bottom
-                // Translate up by one light_height for the next graph
-                ctx.transform(Affine::translate((0.0, light_height))); 
-            }
-        });
+        //         // We want lower numbered lights to be on the bottom
+        //         // Translate up by one light_height for the next graph
+        //         ctx.transform(Affine::translate((0.0, light_height))); 
+        //     }
+        // });
+
+        // Wack, reversed to put bass on the outside
+        let colors: Vec<druid::Color> = data.colors.iter().cloned().rev().collect();
+        let gradient = RadialGradient::new(1.0, &*colors);
+        let rect = Rect::new(0.0, /* size.height / 2.0*/0.0, size.width, size.height);
+        ctx.fill(rect, &gradient);
     }
 }
 
@@ -103,7 +109,7 @@ fn build_root_widget() -> impl Widget<LightState> {
 
 pub fn start(mut rx: mpsc::Receiver<[Color; NUM_LIGHTS]>) -> JoinHandle<Result<()>> {
     tokio::task::spawn_blocking(move || {
-        let main_window = WindowDesc::new(build_root_widget).title("Lights Visualization");
+        let main_window = WindowDesc::new(build_root_widget).show_titlebar(false).title("Lights Visualization");
 
         let launcher = AppLauncher::with_window(main_window);
 

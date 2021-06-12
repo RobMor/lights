@@ -28,13 +28,13 @@ const GRAVITY: f64 = 1.0; // TODO find the right value
 
 const INTEGRAL: f64 = 0.77; // TODO
 
-const BAS_FREQ_LOW: f64 = 20.0;
-const BAS_FREQ_HIGH: f64 = 500.0;
+const BAS_FREQ_LOW: f64 = 1.0;
+const BAS_FREQ_HIGH: f64 = 600.0;
 
-const MID_FREQ_LOW: f64 = 250.0;
+const MID_FREQ_LOW: f64 = 500.0;
 const MID_FREQ_HIGH: f64 = 2_500.0;
 
-const TRE_FREQ_LOW: f64 = 2_500.0;
+const TRE_FREQ_LOW: f64 = 2_000.0;
 const TRE_FREQ_HIGH: f64 = 20_000.0;
 
 // TODO these don't need to be constants...
@@ -49,8 +49,8 @@ const TRE_INDEX_HIGH: f64 = TRE_FREQ_HIGH / BIN_SIZE;
 
 // EQ values to balance out each set of frequencies
 // TODO make these dynamic in some way
-const BAS_EQ: f64 = 1.0 / 8_000.0;
-const MID_EQ: f64 = 1.0 / 1_000.0;
+const BAS_EQ: f64 = 1.0 / 5_000.0;
+const MID_EQ: f64 = 1.0 / 1_500.0;
 const TRE_EQ: f64 = 1.0 / 200.0;
 
 pub struct MusicController {
@@ -289,49 +289,14 @@ impl MusicController {
             // Apply EQ
             val = val * state.eq;
 
-            // // Apply sensitivity
-            // val = val * state.sensitivity;
-
-            // // Adjust sensitivity if values are too high or low for too long
-            // // TODO all these thresholds are arbitrary!!
-            // // TODO this reacts poorly to silence!!!
-            // if state.val > 5.0 && state.val < 75.0 {
-            //     state.high_ticks = state.high_ticks.saturating_sub(10);
-            //     state.low_ticks = state.low_ticks.saturating_add(1);
-
-            //     if state.low_ticks > 10 {
-            //         state.sensitivity *= 1.01;
-            //         state.low_ticks = state.low_ticks.saturating_sub(1);
-            //         log::info!("Increased sens {} {}", i, state.sensitivity);
-            //     }
-            // } else if state.val > 175.0 {
-            //     state.low_ticks = state.low_ticks.saturating_sub(10);
-            //     state.high_ticks = state.high_ticks.saturating_add(1);
-
-            //     if state.high_ticks > 10 {
-            //         state.sensitivity *= 0.98;
-            //         state.high_ticks = state.low_ticks.saturating_sub(1);
-            //         log::info!("Decreased sens {} {}", i, state.sensitivity);
-            //     }
-            // } else {
-            //     state.high_ticks = state.high_ticks.saturating_sub(10);
-            //     state.low_ticks = state.low_ticks.saturating_sub(10);
-            // }
-
             // Apply gravity
             state.velocity -= GRAVITY;
 
             // Did this new value make us move up?
-            if val < state.val {
-                // No
-                // Do nothing
-            } else {
-                // Yes
-                state.velocity = 0.0; // Stop falling
-
+            if val > state.val {
                 // How fast should we move up?
                 // This is an arbitrary formula that just seems to work well...
-                state.velocity += (val - state.val).sqrt();
+                state.velocity = (val - state.val).sqrt();
             }
 
             state.val += state.velocity;
