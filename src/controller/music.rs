@@ -24,7 +24,7 @@ const BUFFER_SIZE: usize = 4096; // TODO making this 8092 caused stack overflows
 /// The size of each FFT bin in Hz
 const BIN_SIZE: f64 = SAMPLE_RATE as f64 / BUFFER_SIZE as f64;
 /// The rate at which each bar decreases (positive means down)
-const GRAVITY: f64 = 1.0; // TODO find the right value
+const GRAVITY: f64 = 6.0; // TODO find the right value
 
 const INTEGRAL: f64 = 0.77; // TODO
 

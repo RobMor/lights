@@ -30,3 +30,6 @@ rs_ws281x = "0.4.2"
 
 # For the lights simulator
 druid = "0.7.0"
+
+# For the usb stuff
+serialport = "4.0.1"
