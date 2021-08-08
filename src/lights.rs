@@ -164,16 +164,18 @@ pub fn start(mut rx: mpsc::Receiver<[Color; NUM_LIGHTS]>) -> JoinHandle<Result<(
         while let Some(color) = rx.blocking_recv() {
             for i in 0..NUM_STRIPS {
                 for j in 0..LIGHT_LENGTH_COLORS {
-                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 0] = color[i].1[0] / 4;
-                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 1] = color[i].1[1] / 4;
-                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 2] = color[i].1[2] / 4;
+                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 0] = 255; //color[i].1[0] / 4;
+                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 1] = 255; //color[i].1[1] / 4;
+                    buffer[i * LIGHT_LENGTH_BYTES + 3 * j + 2] = 255; //color[i].1[2] / 4;
                 }
 
                 buffer[i * LIGHT_LENGTH_BYTES + 24] = 255;
-                buffer[i * LIGHT_LENGTH_BYTES + 25] = 255;
+                buffer[i * LIGHT_LENGTH_BYTES + 25] = 0;
             }
 
+            loop {
             port.write(&buffer).unwrap();
+            }
         }
 
         Ok(())
