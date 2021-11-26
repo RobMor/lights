@@ -11,7 +11,7 @@ use tokio::time::sleep;
 
 use crate::snap::client::SnapClient;
 use crate::controller::{InMessage, OutMessage, Token};
-use crate::cmap::INFERNO_DATA;
+use crate::cmap::MAGMA_DATA;
 use crate::NUM_LIGHTS;
 use crate::Color;
 
@@ -49,7 +49,7 @@ const TRE_INDEX_HIGH: f64 = TRE_FREQ_HIGH / BIN_SIZE;
 
 // EQ values to balance out each set of frequencies
 // TODO make these dynamic in some way
-const BAS_EQ: f64 = 1.0 / 5_000.0;
+const BAS_EQ: f64 = 1.0 / 2_000.0;
 const MID_EQ: f64 = 1.0 / 1_500.0;
 const TRE_EQ: f64 = 1.0 / 200.0;
 
@@ -310,10 +310,22 @@ impl MusicController {
         // let mut colors = [0; 3];
 
         for ((intensity, color), state) in colors.iter_mut().zip(self.spectrum_state.iter()) {
-            let mapped = INFERNO_DATA[state.clamped_val as usize];
+            // let mapped = MAGMA_DATA[state.clamped_val as usize];
 
-            *intensity = state.clamped_val;
-            *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8];
+            let (r1, g1, b1) = (144.0, 0.0, 255.0);
+            let (r2, g2, b2) = (255.0, 168.0, 0.0);
+
+            // Algorithm from https://stackoverflow.com/questions/13488957/interpolate-from-one-color-to-another
+            let fraction = state.clamped_val as f64 / 255.0;
+            let dimmer: f64 = (1.0 as f64).min((state.clamped_val as f64 / 16.0).sqrt());
+            *color = [
+                (((r2 - r1) * fraction + r1) * dimmer) as u8,
+                (((g2 - g1) * fraction + g1) * dimmer) as u8,
+                (((b2 - b1) * fraction + b1) * dimmer) as u8,
+            ];
+
+            // *intensity = state.clamped_val;
+            // *color = [(mapped[0] * 255.0) as u8, (mapped[1] * 255.0) as u8, (mapped[2] * 255.0) as u8];
             // *color = state.val as u8;
         }
 
