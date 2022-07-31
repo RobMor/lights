@@ -1,108 +1,86 @@
+use std::time::{Duration, Instant, SystemTime};
+
 use anyhow::Result;
 use simple_logger::SimpleLogger;
-use std::collections::{BinaryHeap, HashMap};
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::runtime::Runtime;
 
-mod snap;
-mod cmap;
+mod color;
 mod controller;
 mod lights;
 
-use controller::{
-    InMessage, OutMessage, Token,
-    music::MusicController,
-    blank::BlankController,
-};
+use controller::Controller;
+use controller::music::MusicController;
+use controller::blank::BlankController;
+use tokio::sync::mpsc;
 
-pub const NUM_LIGHTS: usize = 3;
-pub type Color = (u8, [u8; 3]);
-// pub type Color = u8;
 
-struct ControllerHandle {
-    pub tx: mpsc::Sender<InMessage>,
-    pub handle: JoinHandle<Result<()>>,
-}
-
-impl ControllerHandle {
-    fn new(tx: mpsc::Sender<InMessage>, handle: JoinHandle<Result<()>>) -> ControllerHandle {
-        ControllerHandle { tx, handle: handle }
-    }
-}
-
-fn setup_music(token: Token, out_tx: mpsc::Sender<(Token, OutMessage)>) -> ControllerHandle {
-    // TODO good size bound?
-    let (tx, in_rx) = mpsc::channel(50);
-
-    let handle = MusicController::start(token, in_rx, out_tx);
-
-    ControllerHandle::new(tx, handle)
-}
-
-fn setup_blank(token: Token, out_tx: mpsc::Sender<(Token, OutMessage)>) -> ControllerHandle {
-    // TODO good size bound?
-    let (tx, in_rx) = mpsc::channel(50);
-
-    let handle = BlankController::start(token, in_rx, out_tx);
-
-    ControllerHandle::new(tx, handle)
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Debug).init().unwrap();
 
-    // TODO what is a good size bound?
-    // TODO make the tx un-cloneable
-    let (lights_tx, lights_rx) = mpsc::channel(50);
+    let rt = Runtime::new().unwrap();
 
+    let _guard = rt.enter();
+
+    let (lights_tx, lights_rx) = mpsc::channel(50);
     let lights = lights::start(lights_rx);
 
-    // TODO what is a good size bound?
-    let (tx, mut rx) = mpsc::channel(50);
+    let mut controllers = Vec::new();
 
-    // TODO jank
-    let mut controllers = HashMap::new();
+    // Added in priority order
+    controllers.push(("Music", setup_music()));
+    controllers.push(("Blank", setup_blank()));
 
-    let music_token = Token::new(10);
-    controllers.insert(music_token, setup_music(music_token, tx.clone()));
+    let frame_duration = Duration::from_secs(1) / 60;
 
-    let blank_token = Token::new(0);
-    controllers.insert(blank_token, setup_blank(blank_token, tx.clone()));
+    let report_period = Duration::from_secs(5);
+    let mut report_start = Instant::now();
+    let mut report_sum = 0;
+    let mut report_n = 0;
 
-    let default = blank_token;
-    let mut active = default;
-    let mut pending_access = BinaryHeap::with_capacity(controllers.len());
+    let mut active_index: Option<usize> = None;
 
-    controllers[&default].tx.send(InMessage::GrantAccess(lights_tx)).await?;
+    loop {
+        let frame_start = Instant::now();
 
-    while let Some((token, msg)) = rx.recv().await {
-        // TODO this feels fragile...
-        // and over-complicated...
-        match msg {
-            OutMessage::RequestAccess => {
-                log::info!("Received access request from {:?}", token);
-
-                if active < token {
-                    log::info!("Revoked access from active {:?}", active);
-                    // TODO some kind of timeout?
-                    controllers[&active].tx.send(InMessage::RevokeAccess).await?
+        // Iterate in priority order
+        for (index, (name, controller)) in controllers.iter_mut().enumerate() {
+            if controller.is_active() {
+                if active_index.replace(index).map_or(true, |i| index != i) {
+                    log::info!("Controller {} just took over", name);
                 }
-                pending_access.push(token);
+
+                let color = controller.tick();
+
+                lights_tx.blocking_send(color)?;
+
+                break;
             }
-            OutMessage::RescindAccess(s) => {
-                assert!(active == token);
+        }
 
-                log::info!("Received rescind access from {:?}", token);
+        let frame_elapsed = frame_start.elapsed();
+        report_sum += frame_elapsed.as_millis();
+        report_n += 1;
 
-                active = pending_access.pop().unwrap_or(default);
+        if report_start.elapsed() > report_period {
+            log::info!("Display stats [num frames in report: {}, avg frame time in ms: {:.3}]", report_n, report_sum as f64 / report_n as f64);
+            report_start = Instant::now();
+            report_sum = 0;
+            report_n = 0;
+        }
 
-                log::info!("Granting access to {:?}", active);
-
-                controllers[&active].tx.send(InMessage::GrantAccess(s)).await?
-            }
+        if frame_elapsed < frame_duration {
+            // Sleep until the end of the frame
+            std::thread::sleep(frame_duration - frame_elapsed);
         }
     }
 
     Ok(())
+}
+
+fn setup_music() -> Box<dyn Controller> {
+    Box::new(MusicController::start())
+}
+
+fn setup_blank() -> Box<dyn Controller> {
+    Box::new(BlankController::new())
 }
